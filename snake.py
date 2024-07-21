@@ -1,25 +1,44 @@
 import random
 import curses
 
-# Umfassende Liste der Frucht-Emojis
-FRUITS = ['🍎', '🍏', '🍐', '🍑', '🍒', '🍓', '🥭', '🍍', '🍉', '🍇', '🍈', '🍋', '🍊', '🍅', '🍆']
+# Comprehensive list of fruit emojis
+FRUITS = ['🍎', '🍏', '🍐', '🍑', '🍒', '🍓', '🍍', '🍉', '🍇', '🍈', '🍋', '🍊', '🍅', '🍆']
+SKULL = '💀'
 
-def draw_map(stdscr, coordinates, food, size, score):
-    stdscr.clear()  # Bildschirm löschen
+# Fixed size of the game field
+SIZE = 30
+
+def draw_map(stdscr, coordinates, food, skulls, size, score):
+    stdscr.clear()  # Clear the screen
+
+    # Draw the border
+    for x in range(size + 2):  # +2 for the top and bottom borders
+        stdscr.addstr(0, x * 2, '*')
+        stdscr.addstr(size + 1, x * 2, '*')
+
+    for y in range(size + 2):  # +2 for the left and right borders
+        stdscr.addstr(y, 0, '*')
+        stdscr.addstr(y, (size * 2) + 2, '*')
+
+    # Draw the game field inside the border
     for x in range(size):
         for y in range(size):
-            if (x, y) in coordinates:
-                stdscr.addstr(x, y * 2, 'X')
-            elif (x, y) == food[1]:
-                stdscr.addstr(x, y * 2, food[0])  # Emoji der Frucht anzeigen
+            if (x, y) == coordinates[-1]:  # Head of the snake
+                stdscr.addstr(x + 1, y * 2 + 1, 'X')  # Adjusted position for border
+            elif (x, y) in coordinates[:-1]:  # Body of the snake
+                stdscr.addstr(x + 1, y * 2 + 1, 'O')  # Adjusted position for border
+            elif (x, y) == food[1]:  # Food position
+                stdscr.addstr(x + 1, y * 2 + 1, food[0])  # Fruit emoji
+            elif (x, y) in skulls:  # Skull positions
+                stdscr.addstr(x + 1, y * 2 + 1, SKULL)  # Skull emoji
             else:
-                stdscr.addstr(x, y * 2, '.')
-    
-    # Anzeige der Anzahl der gegessenen Äpfel
-    stdscr.addstr(size, 0, f"Score: {score}")
+                stdscr.addstr(x + 1, y * 2 + 1, ' ')  # Empty space
+
+    # Display the score
+    stdscr.addstr(size + 2, 0, f"Score: {score}")
     stdscr.refresh()
 
-def movement_with_food(coordinates, direction, food, size):
+def movement_with_food(coordinates, direction, food, skulls, size):
     head_x, head_y = coordinates[-1]
     if direction == 'n':
         new_head = (head_x - 1, head_y)
@@ -32,49 +51,69 @@ def movement_with_food(coordinates, direction, food, size):
     else:
         raise ValueError("Invalid direction! Use 'n', 's', 'e', or 'w'.")
 
-    if (new_head in coordinates) or not (0 <= new_head[0] < size and 0 <= new_head[1] < size):
-        return False, food, False
+    if (new_head in coordinates) or not (0 <= new_head[0] < size and 0 <= new_head[1] < size) or new_head in skulls:
+        return False, food, skulls, False
 
     coordinates.append(new_head)
     if new_head == food[1]:
-        food = place_food(coordinates, size)
-        return True, food, True  # True indicates that food was eaten
+        food = place_food(coordinates, skulls, size)
+        return True, food, skulls, True  # True indicates that food was eaten
     else:
         coordinates.pop(0)
-        return True, food, False
+        return True, food, skulls, False
 
-def place_food(coordinates, size):
+def place_food(coordinates, skulls, size):
     while True:
         food_pos = (random.randint(0, size-1), random.randint(0, size-1))
-        if food_pos not in coordinates:
+        if food_pos not in coordinates and food_pos not in skulls:
             food_emoji = random.choice(FRUITS)
             return food_emoji, food_pos
 
+def place_skulls(coordinates, size):
+    skulls = set()
+    while len(skulls) < 3:  # Adjust number of skulls here
+        skull_pos = (random.randint(0, size-1), random.randint(0, size-1))
+        if skull_pos not in coordinates:
+            skulls.add(skull_pos)
+    return skulls
+
 def play_dynamic_game(stdscr):
-    global size
-    # Überprüfen der Terminalgröße
+    global SIZE
+
+    # Initial user prompt
+    stdscr.clear()
+    stdscr.addstr(0, 0, "Are you ready to start the game? (y/n)")
+    stdscr.refresh()
+    key = stdscr.getch()
+    
+    if key != ord('y'):
+        return  # Exit if user does not press 'y'
+
+    # Check terminal size
     height, width = stdscr.getmaxyx()
-    if size > height or size * 2 > width:
+    if SIZE > height or SIZE * 2 > width:
         stdscr.addstr(0, 0, "Terminal window too small!")
         stdscr.refresh()
         stdscr.getch()
         return
 
     coordinates = [(0, 0), (0, 1), (0, 2)]
-    food = place_food(coordinates, size)
-    direction = 'e'  # Anfangsrichtung
-    score = 0        # Anzahl der gegessenen Äpfel
-    speed = 300      # Anfangsgeschwindigkeit (in ms), langsamer Start
-    speed_increment = 20  # Erhöhung der Geschwindigkeit nach jedem gegessenen Apfel
+    food = place_food(coordinates, set(), SIZE)
+    skulls = place_skulls(coordinates, SIZE)
+    direction = 'e'  # Initial direction
+    score = 0        # Number of fruits eaten
+    speed = 300      # Initial speed (in ms), slower start
+    speed_increment = 20  # Speed increase after eating each fruit
 
-    stdscr.nodelay(True)  # Eingaben nicht blockieren
-    stdscr.timeout(speed)  # Timeout für Eingabe (speed ms)
+    stdscr.nodelay(True)  # Non-blocking input
+    stdscr.timeout(speed)  # Timeout for input (speed ms)
 
     game_over = False
 
     while not game_over:
-        draw_map(stdscr, coordinates, food, size, score)
+        draw_map(stdscr, coordinates, food, skulls, SIZE, score)
         key = stdscr.getch()
+
         if key == curses.KEY_UP and direction != 's':
             direction = 'n'
         elif key == curses.KEY_DOWN and direction != 'n':
@@ -87,26 +126,25 @@ def play_dynamic_game(stdscr):
             break
         
         try:
-            success, food, ate_food = movement_with_food(coordinates, direction, food, size)
+            success, food, skulls, ate_food = movement_with_food(coordinates, direction, food, skulls, SIZE)
             if not success:
                 game_over = True
             if ate_food:
                 score += 1
-                speed = max(50, speed - speed_increment)  # Geschwindigkeit erhöhen, nicht unter 50 ms
-                stdscr.timeout(speed)  # Aktualisieren des Timeouts für die Eingabe
+                speed = max(50, speed - speed_increment)  # Increase speed, not below 50 ms
+                stdscr.timeout(speed)  # Update timeout for input
         except ValueError as ve:
-            stdscr.addstr(size + 1, 0, str(ve))
+            stdscr.addstr(SIZE + 1, 0, str(ve))
             stdscr.refresh()
             continue
 
-    # Anzeigen der Game Over-Nachricht
-    stdscr.clear()  # Bildschirm löschen, um das "Game Over"-Label zu sehen
-    stdscr.addstr(size // 2, (size * 2) // 2 - 5, "Game Over!", curses.A_BOLD)
-    stdscr.addstr(size // 2 + 1, (size * 2) // 2 - 10, f"Final Score: {score}", curses.A_BOLD)
+    # Display "Game Over" message
+    stdscr.clear()  # Clear screen to see "Game Over"
+    stdscr.addstr(SIZE // 2, (SIZE * 2) // 2 - 5, "Game Over!", curses.A_BOLD)
+    stdscr.addstr(SIZE // 2 + 1, (SIZE * 2) // 2 - 10, f"Final Score: {score}", curses.A_BOLD)
     stdscr.refresh()
     stdscr.nodelay(False)
-    stdscr.getch()  # Warten auf Benutzereingabe, um das Programm zu beenden
+    stdscr.getch()  # Wait for user input to exit
 
 if __name__ == "__main__":
-    size = int(input("Enter the size of the map (greater than 4): "))
     curses.wrapper(play_dynamic_game)
